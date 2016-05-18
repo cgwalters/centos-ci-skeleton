@@ -1,0 +1,205 @@
+#!/usr/bin/env python
+# -*- tab-width: 4; indent-tabs-mode: nil -*-
+# This script adds a few bits on top of "raw duffy"
+# First, it generates an Ansible inventory in the current directory
+# as a file called "inventory".
+#
+# Much more importantly, it enables node reuse across independent
+# Jenkins jobs.  This allows you to optionally more efficently reuse
+# machines between jobs that may run frequently. For example, let's
+# say you have a job that is building Github PRs.  Your job may
+# install `mock` or another tool to build RPM packages.  Or perhaps
+# you directly `yum install` build dependencies.  You really don't
+# want to do that for each PR, and furthermore, you may be able to do
+# *multiple* builds on a single machine (32GB of ram is a lot, and
+# many builds/tests don't need that much).
+
+from __future__ import print_function
+
+import json, urllib, subprocess, sys, os, time
+import argparse
+
+url_base="http://admin.ci.centos.org:8080"
+api_key=open(os.path.expanduser('~/duffy.key')).read().strip()
+cached_state_path = os.path.expanduser('~/duffy-state-cache.json')
+ver="7"
+arch="x86_64"
+inventory_url="%s/Inventory?key=%s" % (url_base,api_key)
+
+def allocate(count):
+    print("Allocating {} machines".format(count))
+    get_nodes_url="%s/Node/get?key=%s&ver=%s&arch=%s&count=%s" % (url_base,api_key,ver,arch,count)
+    b=json.load(urllib.urlopen(get_nodes_url))
+    hosts=b['hosts']
+    ssid=b['ssid']
+    print("Allocated {} hosts with DUFFY_SSID={}".format(len(hosts), ssid))
+    return hosts, ssid
+
+def print_classes(classes):
+    print("Currently allocated classes:")
+    if len(classes) == 0:
+        print("  (none)")
+    else:
+        for name,clsdata in classes.iteritems():
+            print("{}:".format(name))
+            for machine in clsdata:
+                print("  {}".format(machine))
+
+def job_take(args, ssids, allocated_class):
+    free_machines = []
+    for machine in allocated_class:
+        if machine['job'] == '':
+            free_machines.append(machine)
+    nfree = len(free_machines)
+    print("{}/{} free machines, requesting {}".format(nfree, len(allocated_class), args.count))
+    if nfree < args.count:
+        n_to_allocate = args.count - nfree
+        (this_hosts, this_ssid) = allocate(n_to_allocate)
+        this_time = int(time.time())
+        for host in this_hosts:
+            allocated_class.append({'name': host,
+                                    'ssid': this_ssid,
+                                    'job': ''})
+        ssids[this_ssid] = {'expirytime': this_time + args.timeout_secs}
+    else:
+        print("(Reusing existing allocation)")
+
+    # In order to do a rsync, we have to have *a* valid SSID, we don't
+    # necessarily have to have allocated one on this particular job.
+    a_ssid = None
+    first_machine_allocated = None
+    with open('inventory', 'a') as f:
+        f.write('[' + args.ansible_group + ']\n')
+        n_allocated = 0
+        for machine in allocated_class:
+            if machine['job'] != '':
+                continue
+            if a_ssid is None:
+                a_ssid = machine['ssid']
+                first_machine_allocated = machine['name']
+            machine['job'] = args.jobid
+            f.write(machine['name'] + '\n')
+            print('Assigning host: {} (SSID={})'.format(machine['name'], machine['ssid']))
+            n_allocated += 1
+            if n_allocated == args.count:
+                break
+        assert n_allocated == args.count
+           
+    with open('job.props', 'w') as f:
+        f.write('RSYNC_PASSWORD={}\n'.format(a_ssid[:13]))
+        # For convenience, if we only allocated a single machine
+        if args.count == 1:
+            f.write('DUFFY_HOST={}\n'.format(first_machine_allocated))
+
+def job_release(args, allocated_class):
+    matched_machines = False
+    for machine in allocated_class:
+        if machine['job'] == args.jobid:
+            print("Releasing machine {}".format(machine['name']))
+            matched_machines = True
+            machine['job'] = ''
+    if not matched_machines:
+        print("WARNING: No matched machines for jobid {}".format(args.jobid))
+
+def process_ssid_expiry(classes, ssid):
+    to_free = []
+    have_lingering = False
+    for clsname,cls in classes.iteritems():
+        for machine in cls:
+            if machine['ssid'] == ssid:
+                if machine['job'] == '':
+                    to_free.append(machine)
+                else:
+                    print("Machine {} (SSID={}) is being retained past expiry by job {}".format(machine['name'], machine['ssid'], machine['job']))
+                    have_lingering = True
+
+    if have_lingering:
+        return False
+
+    for clsname,cls in classes.iteritems():
+        newcls = []
+        for machine in cls:
+            if machine['ssid'] != ssid:
+                newcls.append(machine)
+        cls[:] = newcls
+                
+    print("Deallocating DUFFY_SSID={}".format(ssid))
+    done_nodes_url="%s/Node/done?key=%s&ssid=%s" % (url_base, api_key, ssid)
+    urllib.urlopen(done_nodes_url).read()
+    print("Deallocated DUFFY_SSID={}".format(ssid))
+    return True
+
+def gc_ssids(classes, ssids):
+    print("Performing SSID garbage collection")
+    this_time = int(time.time())
+
+    to_delete = []
+    if len(ssids) == 0:
+        print("  (No SSIDs allocated)")
+    for ssid in sorted(ssids):
+        data = ssids[ssid]
+        expirytime = int(data['expirytime'])
+
+        expiry_secs = expirytime - this_time
+        print("SSID {} will expire in {} seconds".format(ssid, expiry_secs))
+        if expiry_secs > 0:
+            continue
+
+        if process_ssid_expiry(classes, ssid):
+            to_delete.append(ssid)
+    for ssid in to_delete:
+        del ssids[ssid]
+
+def get_set_default(d, k, defval):
+    v = d.get(k)
+    if v is None:
+        v = defval
+        d[k] = v
+    return v
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--allocate', help="Allocate a machine", action='store_true')
+    parser.add_argument('--teardown', help="Allocate a machine", action='store_true')
+    parser.add_argument('--class', help="Class/group of machine", dest='cls')
+    parser.add_argument('--jobid', help="Identifier for requesting process")
+    parser.add_argument('--gc', help="Only perform GC", action='store_true')
+    parser.add_argument('--count', help="Number of machines", type=int, default=1)
+    parser.add_argument('--ansible-group', help="Place machines under Ansible GROUP instead of 'all'", action='store', default='all')
+    parser.add_argument('--timeout-secs', help="Deallocate idle machine after this many seconds", type=int, default=60*60)
+    args = parser.parse_args()
+
+    if os.path.isfile(cached_state_path):
+        with open(cached_state_path) as f:
+            cached_state = json.load(f)
+    else:
+        cached_state = {}
+    
+    classes = get_set_default(cached_state, 'classes', {})
+    print_classes(classes)
+    ssids = get_set_default(cached_state, 'ssids', {})
+
+    gc_ssids(classes, ssids)
+
+    assert not (args.gc and args.allocate)
+    assert not (args.allocate and args.teardown)
+
+    if not args.gc:
+        allocated_class = get_set_default(classes, args.cls, [])
+        
+        if args.allocate:
+            assert args.cls
+            assert args.jobid
+            job_take(args, ssids, allocated_class)
+        elif args.teardown:
+            job_release(args, allocated_class)
+        else:
+            print("Must specify --allocate or --teardown or --gc")
+            sys.exit(1)
+
+    with open(cached_state_path + '.tmp', 'w') as f:
+        json.dump(cached_state, f, sort_keys=True, indent=4)
+    os.rename(cached_state_path + '.tmp', cached_state_path)
+
+if __name__ == '__main__':
+    main()

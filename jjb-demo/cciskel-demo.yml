@@ -1,0 +1,46 @@
+- job:
+    name: atomictest-build-git-evtag-master
+    node: atomic-sig-ci-slave01
+    description: "Managed by Jenkins Job Builder. Do not edit via web."
+
+    scm:
+      # You need to clone this repo for the scripts
+      - git:
+          url: "https://github.com/cgwalters/centos-ci-skeleton"
+          basedir: cciskel
+      # Now, replace this with your actual repo
+      - git:
+          url: "https://github.com/cgwalters/git-evtag"
+          basedir: git-evtag
+
+    triggers:
+      - github
+
+    wrappers:
+      - ansicolor
+      - workspace-cleanup
+      - timestamps
+
+    builders:
+      - macro-cciskel-duffy-prepared-allocate:
+          jobclass: builder
+          duffytimeoutsecs: "360"
+          playbook: cciskel/jjb-demo/setup.yml
+      - shell: |
+          #!/bin/bash
+          set -xeuo pipefail
+          # We need to copy the source code to our target node.  Note the
+          # allocator set ${DUFFY_HOST}.
+          rsync -q --delete -Hrlptv --stats -e ssh git-evtag/ builder@${DUFFY_HOST}:git-evtag/
+          # Now, we use ssh directly rather than ansible so that we get the log
+          # output directly.
+          # See main.yml in the Ansible rules for where we install build deps.
+          ssh -tt builder@${DUFFY_HOST} "cd git-evtag && env NOCONFIGURE=1 ./autogen.sh && ./configure && make"
+
+    publishers:
+      - macro-cciskel-duffy-deallocate
+
+- project:
+    name: cciskel
+    jobs:
+      - atomictest-build-git-evtag-master

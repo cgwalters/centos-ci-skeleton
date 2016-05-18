@@ -1,0 +1,122 @@
+# @GENERATED_WARNING@
+# 
+# These macros wrap the duffy-provision tool, making it easy to
+# allocate machines in a Jenkins job, recording in the metadata that
+# the job is claiming a reference on a particular provisioned "class"
+# of machine.
+#
+# A "jobclass" is a tag or group of machines.  Most commonly, you might
+# use this to denote machines which have run a certain system-level
+# Ansible or other provisioning step on them.  For example, you could
+# allow container jobs to reuse classes of type "openshift", and
+# dedicated virt jobs to reuse "libvirt" nodes.
+
+# Allocate one machine, but reuse it across jobs.  Run an
+# Ansible playbook to setup the machine - the playbook is
+# run for each job to help ensure state synchronization.
+#
+# Template variables:
+#
+#  - jobclass: Identifier for machine type
+#  - playbook: Path to Ansible playbook to set up system (optional)
+#  - duffytimeoutsecs  (Suggest setting this in your project globally)
+- builder:
+    name: macro-cciskel-duffy-prepared-allocate
+    builders:
+      - shell: |
+          #!/bin/bash
+          set -xeuo pipefail
+          rm -f duffy-allocate.props
+          echo "ORIGIN_WORKSPACE=${{WORKSPACE}}" >> duffy-allocate.props
+          echo "ORIGIN_BUILD_TAG=${{BUILD_TAG}}" >> duffy-allocate.props
+          echo "ORIGIN_CLASS={jobclass}" >> duffy-allocate.props
+          echo "DUFFY_JOB_TIMEOUT_SECS={duffytimeoutsecs}" >> duffy-allocate.props
+      - trigger-builds:
+          - project: @CENTOSCIPROJECTNAME@-duffy-allocate
+            current-parameters: true
+            property-file: duffy-allocate.props
+            predefined-parameters: |
+              DUFFY_OP=--allocate
+            block: true
+            same-node: true
+      - inject:
+          properties-content: ANSIBLE_HOST_KEY_CHECKING=False
+          properties-file: job.props
+      - shell: |
+          #!/bin/bash
+          set -xeuo pipefail
+          playbook="{playbook}"
+          if test -n "${{playbook:-}}"; then
+            ansible-playbook -u root -i ${{WORKSPACE}}/inventory "${{playbook}}"
+          else
+            ansible -u root -i ${{WORKSPACE}}/inventory all -m ping
+          fi
+
+# Allocate one machine, tear it down immediately after this job completes
+- builder:
+    name: macro-cciskel-duffy-allocate
+    builders:
+      - macro-cciskel-duffy-allocate-reusable:
+          jobclass: nonreusable
+          duffytimeout: 0
+          playbook: ""
+
+- publisher:
+    name: macro-cciskel-duffy-deallocate
+    publishers:
+      - trigger-parameterized-builds:
+          - project: @CENTOSCIPROJECTNAME@-duffy-allocate
+            current-parameters: true
+            property-file: duffy-allocate.props
+            predefined-parameters: |
+              DUFFY_OP=--teardown
+            same-node: true
+            block: true
+
+- defaults:
+    name: @CENTOSCIPROJECTNAME@-defaults
+    node: @CENTOSCINODE@
+    quiet-period: 0
+    wrappers:
+      - ansicolor
+      - workspace-cleanup
+      - timestamps
+
+# This singleton job ensures that it's the only thing accessing
+# the cached duffy state.
+- job:
+    name: @CENTOSCIPROJECTNAME@-duffy-allocate
+    defaults: @CENTOSCIPROJECTNAME@-defaults
+    builders:
+      - shell: |
+          #!/bin/bash
+          set -xeuo pipefail
+          if test -n "${ORIGIN_CLASS:-}"; then
+            cd ${ORIGIN_WORKSPACE}
+            exec cciskel/cciskel-duffy ${DUFFY_OP} --class=${ORIGIN_CLASS} --jobid=${ORIGIN_BUILD_TAG} \
+                   --timeout=${DUFFY_JOB_TIMEOUT_SECS:-0} --count=${DUFFY_COUNT:-1}
+          else
+            exec cciskel/cciskel-duffy ${DUFFY_OP}
+          fi
+
+- job:
+    name: @CENTOSCIPROJECTNAME@-duffy-gc
+    defaults: @CENTOSCIPROJECTNAME@-defaults
+    scm:
+      - git:
+          url: "https://github.com/cgwalters/centos-ci-skeleton"
+          basedir: cciskel
+    builders:
+      - shell: |
+          #!/bin/bash
+          set -xeuo pipefail
+          rm -f duffy-allocate.props
+          echo "ORIGIN_WORKSPACE=${{WORKSPACE}}" >> duffy-allocate.props
+      - trigger-builds:
+          - project: @CENTOSCIPROJECTNAME@-duffy-allocate
+            current-parameters: true
+            property-file: duffy-allocate.props
+            predefined-parameters: |
+              DUFFY_OP=--gc
+            block: true
+            same-node: true
