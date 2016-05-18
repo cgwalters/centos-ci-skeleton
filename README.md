@@ -1,0 +1,1 @@
+# centos-ci-skeleton
