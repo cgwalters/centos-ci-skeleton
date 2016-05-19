@@ -74,7 +74,7 @@
             block: true
 
 - defaults:
-    name: @CENTOSCIPROJECTNAME@-defaults
+    name: @CENTOSCIPROJECTNAME@-duffy-defaults
     node: @CENTOSCINODE@
     quiet-period: 0
     wrappers:
@@ -86,7 +86,7 @@
 # the cached duffy state.
 - job:
     name: @CENTOSCIPROJECTNAME@-duffy-allocate
-    defaults: @CENTOSCIPROJECTNAME@-defaults
+    defaults: @CENTOSCIPROJECTNAME@-duffy-defaults
     builders:
       - shell: |
           #!/bin/bash
@@ -101,7 +101,7 @@
 
 - job:
     name: @CENTOSCIPROJECTNAME@-duffy-gc
-    defaults: @CENTOSCIPROJECTNAME@-defaults
+    defaults: @CENTOSCIPROJECTNAME@-duffy-defaults
     scm:
       - git:
           url: "https://github.com/cgwalters/centos-ci-skeleton"
