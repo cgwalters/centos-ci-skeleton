@@ -26,11 +26,12 @@
       - shell: |
           #!/bin/bash
           set -xeuo pipefail
-          rm -f duffy-allocate.props
-          echo "ORIGIN_WORKSPACE=${{WORKSPACE}}" >> duffy-allocate.props
-          echo "ORIGIN_BUILD_TAG=${{BUILD_TAG}}" >> duffy-allocate.props
-          echo "ORIGIN_CLASS={jobclass}" >> duffy-allocate.props
-          echo "DUFFY_JOB_TIMEOUT_SECS={duffytimeoutsecs}" >> duffy-allocate.props
+          cat > duffy-allocate.props << EOF
+          ORIGIN_WORKSPACE=${{WORKSPACE}}
+          ORIGIN_BUILD_TAG=${{BUILD_TAG}}
+          ORIGIN_CLASS={jobclass}
+          DUFFY_JOB_TIMEOUT_SECS={duffytimeoutsecs}
+          EOF
       - trigger-builds:
           - project: @CENTOSCIPROJECTNAME@-duffy-allocate
             current-parameters: true
@@ -87,12 +88,18 @@
 - job:
     name: @CENTOSCIPROJECTNAME@-duffy-allocate
     defaults: @CENTOSCIPROJECTNAME@-duffy-defaults
+    scm:
+      - git:
+          url: "https://github.com/cgwalters/centos-ci-skeleton"
+          basedir: cciskel
     builders:
       - shell: |
           #!/bin/bash
           set -xeuo pipefail
-          if test -n "${ORIGIN_CLASS:-}"; then
+          if test -n ${ORIGIN_WORKSPACE:-}; then
             cd ${ORIGIN_WORKSPACE}
+          fi
+          if test -n "${ORIGIN_CLASS:-}"; then
             exec cciskel/cciskel-duffy ${DUFFY_OP} --class=${ORIGIN_CLASS} --jobid=${ORIGIN_BUILD_TAG} \
                    --timeout=${DUFFY_JOB_TIMEOUT_SECS:-0} --count=${DUFFY_COUNT:-1}
           else
@@ -107,15 +114,9 @@
           url: "https://github.com/cgwalters/centos-ci-skeleton"
           basedir: cciskel
     builders:
-      - shell: |
-          #!/bin/bash
-          set -xeuo pipefail
-          rm -f duffy-allocate.props
-          echo "ORIGIN_WORKSPACE=${{WORKSPACE}}" >> duffy-allocate.props
       - trigger-builds:
           - project: @CENTOSCIPROJECTNAME@-duffy-allocate
             current-parameters: true
-            property-file: duffy-allocate.props
             predefined-parameters: |
               DUFFY_OP=--gc
             block: true
