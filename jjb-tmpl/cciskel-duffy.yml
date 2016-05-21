@@ -96,14 +96,18 @@
       - shell: |
           #!/bin/bash
           set -xeuo pipefail
-          if test -n ${ORIGIN_WORKSPACE:-}; then
+          # If we somehow got called without an op, do nothing.
+          if test -z "${DUFFY_OP:-}"; then
+            exit 0
+          fi
+          if test -n "${ORIGIN_WORKSPACE:-}"; then
             cd ${ORIGIN_WORKSPACE}
           fi
           if test -n "${ORIGIN_CLASS:-}"; then
-            exec cciskel/cciskel-duffy ${DUFFY_OP} --class=${ORIGIN_CLASS} --jobid=${ORIGIN_BUILD_TAG} \
+            exec ${WORKSPACE}/cciskel/cciskel-duffy ${DUFFY_OP} --class=${ORIGIN_CLASS} --jobid=${ORIGIN_BUILD_TAG} \
                    --timeout=${DUFFY_JOB_TIMEOUT_SECS:-0} --count=${DUFFY_COUNT:-1}
           else
-            exec cciskel/cciskel-duffy ${DUFFY_OP}
+            exec ${WORKSPACE}/cciskel/cciskel-duffy ${DUFFY_OP}
           fi
 
 - job:
