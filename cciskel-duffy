@@ -266,7 +266,8 @@ def main():
     print_classes(classes)
     ssids = get_set_default(cached_state, 'ssids', {})
 
-    gc_ssids(classes, ssids)
+    if args.gc or args.allocate or args.teardown:
+        gc_ssids(classes, ssids)
 
     assert not (args.gc and args.allocate)
     assert not (args.allocate and args.teardown)
