@@ -1,0 +1,85 @@
+# based upon the following duffy provisioning
+#   [
+#        "n31.crusty",
+#        "d4de2418"
+#    ],
+#    [
+#        "n34.crusty",
+#        "d4de2418"
+#    ],
+#    [
+#        "n11.dusty",
+#        "d4de2418"
+#    ],
+#    [
+#        "n24.dusty",
+#        "d4de2418"
+#    ]
+#
+# and the duffy-openshift-3node-cluster.json topology file
+# the inventory file should look like this
+
+[masters]
+n31.crusty.ci.centos.org
+n34.crusty.ci.centos.org
+
+[OSEv3]
+n31.crusty.ci.centos.org
+n34.crusty.ci.centos.org
+n11.dusty.ci.centos.org
+n24.dusty.ci.centos.org
+
+[repo_host]
+n24.dusty.ci.centos.org
+
+[nodes]
+n31.crusty.ci.centos.org
+n34.crusty.ci.centos.org
+n11.dusty.ci.centos.org
+n24.dusty.ci.centos.org
+
+[masters:vars]
+openshift_override_hostname_check=true
+product_type=openshift
+ansible_ssh_user=root
+openshift_set_hostname=true
+openshift_node_labels={'region': 'infra', 'zone': 'default'}
+openshift_public_hostname=__IP__
+openshift_hostname=__IP__
+ansible_sudo=false
+deployment_type=openshift-enterprise
+
+[nodes:vars]
+openshift_override_hostname_check=true
+product_type=openshift
+ansible_ssh_user=root
+openshift_set_hostname=true
+openshift_node_labels={'region': 'primary', 'zone': 'west'}
+openshift_public_hostname=__IP__
+openshift_hostname=__IP__
+ansible_sudo=false
+deployment_type=openshift-enterprise
+
+[OSEv3:vars]
+openshift_override_hostname_check=true
+product_type=openshift
+ansible_ssh_user=root
+openshift_set_hostname=true
+openshift_node_labels={'region': 'primary', 'zone': 'west'}
+openshift_public_hostname=__IP__
+openshift_hostname=__IP__
+ansible_sudo=false
+deployment_type=openshift-enterprise
+
+[repo_host:vars]
+openshift_override_hostname_check=true
+product_type=openshift
+ansible_ssh_user=root
+openshift_set_hostname=true
+openshift_node_labels={'region': 'primary', 'zone': 'west'}
+openshift_public_hostname=__IP__
+openshift_hostname=__IP__
+ansible_sudo=false
+deployment_type=openshift-enterprise
+
+

@@ -1,0 +1,52 @@
+{
+    "resources": [
+        {
+            "name": "openshift-node1",
+            "count": "1",
+            "metadata": {
+                "product_type": "openshift",
+                "deployment_type": "openshift-enterprise",
+                "ansible_sudo": "false",
+                "ansible_ssh_user": "root",
+                "openshift_override_hostname_check": "true",
+                "openshift_node_labels": "{'region': 'primary', 'zone': 'east'}",
+                "openshift_hostname": "__IP__",
+                "openshift_public_hostname": "__IP__",
+                "openshift_set_hostname": "true",
+                "ansible-group": ["nodes", "OSEv3"]
+            }
+        },
+        {
+            "name": "openshift-node2",
+            "count": "1",
+            "metadata": {
+                "product_type": "openshift",
+                "deployment_type": "openshift-enterprise",
+                "ansible_sudo": "false",
+                "ansible_ssh_user": "root",
+                "openshift_override_hostname_check": "true",
+                "openshift_node_labels": "{'region': 'primary', 'zone': 'west'}",
+                "openshift_hostname": "__IP__",
+                "openshift_public_hostname": "__IP__",
+                "openshift_set_hostname": "true",
+                "ansible-group": ["nodes", "OSEv3", "repo_host"]
+            }
+        },
+        {
+            "name": "openshift-master",
+            "count": "1",
+            "metadata": {
+                "product_type": "openshift",
+                "deployment_type": "openshift-enterprise",
+                "ansible_sudo": "false",
+                "ansible_ssh_user": "root",
+                "openshift_override_hostname_check": "true",
+                "openshift_node_labels": "{'region': 'infra', 'zone': 'default'}",
+                "openshift_hostname": "__IP__",
+                "openshift_public_hostname": "__IP__",
+                "openshift_set_hostname": "true",
+                "ansible-group": ["masters", "nodes", "OSEv3"]
+            }
+        }
+   ]
+}

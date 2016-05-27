@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 # -*- tab-width: 4; indent-tabs-mode: nil -*-
 # This script adds a few bits on top of "raw duffy"
 # First, it generates an Ansible inventory in the current directory
@@ -45,7 +46,110 @@ def print_classes(classes):
             for machine in clsdata:
                 print("  {}".format(machine))
 
-def job_take(args, ssids, allocated_class):
+
+def count_requested_instances(topo_data):
+    count = 0
+
+    for td in topo_data:
+        count += int(td['count'])
+
+    return count
+
+
+def write_inventory(args, allocated_class, topo_data=None):
+
+    a_ssid = None
+    first_machine_allocated = None
+
+    for machine in allocated_class:
+        if machine['job'] != '':
+            continue
+        if a_ssid is None:
+            a_ssid = machine['ssid']
+            first_machine_allocated = machine['name']
+        machine['job'] = args.jobid
+
+    inventory = {}
+
+    if topo_data:
+        n_allocated = 0
+        node_types = len(topo_data)
+
+        for nt in range(node_types):
+
+            nt_hosts = int(topo_data[nt]['count'])
+            metadata = topo_data[nt]['metadata']
+            groups = metadata['ansible-group']
+
+            for group in groups:
+                for k,v in metadata.iteritems():
+                    if k != 'ansible-group':
+                        gvs = '{}:vars'.format(group)
+                        if inventory.has_key(gvs):
+                            inventory[gvs][k] = v
+                        else:
+                            inventory[gvs] = {k: v}
+
+            for nt in range(nt_hosts):
+                host = allocated_class[n_allocated]
+
+                for group in groups:
+                    grouphosts = inventory.get(group)
+                    if grouphosts is None:
+                      grouphosts = inventory[group] = []
+                    grouphosts.append(host['name'])
+
+                n_allocated += 1
+                if n_allocated == args.count:
+                    break
+
+        assert n_allocated == args.count
+
+    with open('inventory.{}'.format(args.jobid), 'a+') as f:
+        # if inventory exists, use it instead of args.ansible_group
+        if inventory:
+            for k, v in inventory.iteritems():
+                f.write('[{}]\n'.format(k))
+
+                if isinstance(v, dict):
+                    for q,w in v.iteritems():
+                        f.write("{}='{}'\n".format(q,w))
+                else:
+                    for items in v:
+                        f.write('{}\n'.format(items))
+
+                f.write('\n')
+        else:
+            f.write('[' + args.ansible_group + ']\n')
+            n_allocated = 0
+            for machine in allocated_class:
+                if machine['job'] != '':
+                    pass
+                if a_ssid is None:
+                    a_ssid = machine['ssid']
+                    first_machine_allocated = machine['name']
+                machine['job'] = args.jobid
+                f.write(machine['name'] + '\n')
+                print('Assigning host: {} (SSID={})'.format(machine['name'], args.jobid))
+                n_allocated += 1
+                if n_allocated == args.count:
+                    break
+
+            assert n_allocated == args.count
+
+
+    with open('job.props', 'w') as f:
+        f.write('RSYNC_PASSWORD={}\n'.format(a_ssid[:13]))
+        # For convenience, if we only allocated a single machine
+        if args.count == 1:
+            f.write('DUFFY_HOST={}\n'.format(first_machine_allocated))
+
+
+def job_take(args, ssids, allocated_class, topo_data=None):
+    if topo_data:
+        if os.path.exists('inventory.{}'.format(args.jobid)):
+            raise OSError("Inventory file 'inventory.{}' already exists, please run --teardown with"
+                            "--jobid='{}'".format(args.jobid, args.jobid))
     free_machines = []
     for machine in allocated_class:
         if machine['job'] == '':
@@ -66,30 +170,8 @@ def job_take(args, ssids, allocated_class):
 
     # In order to do a rsync, we have to have *a* valid SSID, we don't
     # necessarily have to have allocated one on this particular job.
-    a_ssid = None
-    first_machine_allocated = None
-    with open('inventory', 'a') as f:
-        f.write('[' + args.ansible_group + ']\n')
-        n_allocated = 0
-        for machine in allocated_class:
-            if machine['job'] != '':
-                continue
-            if a_ssid is None:
-                a_ssid = machine['ssid']
-                first_machine_allocated = machine['name']
-            machine['job'] = args.jobid
-            f.write(machine['name'] + '\n')
-            print('Assigning host: {} (SSID={})'.format(machine['name'], machine['ssid']))
-            n_allocated += 1
-            if n_allocated == args.count:
-                break
-        assert n_allocated == args.count
-           
-    with open('job.props', 'w') as f:
-        f.write('RSYNC_PASSWORD={}\n'.format(a_ssid[:13]))
-        # For convenience, if we only allocated a single machine
-        if args.count == 1:
-            f.write('DUFFY_HOST={}\n'.format(first_machine_allocated))
+    write_inventory(args, allocated_class, topo_data)
+
 
 def job_release(args, allocated_class):
     matched_machines = False
@@ -98,6 +180,10 @@ def job_release(args, allocated_class):
             print("Releasing machine {}".format(machine['name']))
             matched_machines = True
             machine['job'] = ''
+            try:
+                os.remove('inventory.{}'.format(args.jobid))
+            except:
+                pass
     if not matched_machines:
         print("WARNING: No matched machines for jobid {}".format(args.jobid))
 
@@ -122,7 +208,7 @@ def process_ssid_expiry(classes, ssid):
             if machine['ssid'] != ssid:
                 newcls.append(machine)
         cls[:] = newcls
-                
+
     print("Deallocating DUFFY_SSID={}".format(ssid))
     done_nodes_url="%s/Node/done?key=%s&ssid=%s" % (url_base, api_key, ssid)
     urllib.urlopen(done_nodes_url).read()
@@ -159,13 +245,14 @@ def get_set_default(d, k, defval):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--allocate', help="Allocate a machine", action='store_true')
-    parser.add_argument('--teardown', help="Allocate a machine", action='store_true')
+    parser.add_argument('--allocate', help="Allocate machine(s)", action='store_true')
+    parser.add_argument('--teardown', help="Teardown machine(s)", action='store_true')
     parser.add_argument('--class', help="Class/group of machine", dest='cls')
     parser.add_argument('--jobid', help="Identifier for requesting process")
     parser.add_argument('--gc', help="Only perform GC", action='store_true')
     parser.add_argument('--count', help="Number of machines", type=int, default=1)
     parser.add_argument('--ansible-group', help="Place machines under Ansible GROUP instead of 'all'", action='store', default='all')
+    parser.add_argument('--topology', help="Define ansible groups/vars from provided file")
     parser.add_argument('--timeout-secs', help="Deallocate idle machine after this many seconds", type=int, default=60*60)
     args = parser.parse_args()
 
@@ -174,7 +261,7 @@ def main():
             cached_state = json.load(f)
     else:
         cached_state = {}
-    
+
     classes = get_set_default(cached_state, 'classes', {})
     print_classes(classes)
     ssids = get_set_default(cached_state, 'ssids', {})
@@ -184,13 +271,22 @@ def main():
     assert not (args.gc and args.allocate)
     assert not (args.allocate and args.teardown)
 
+    # if a topoology file is provided, don't use ansible_group
+    # args.count is determined from the file data
+    topo_data=None
+    if args.topology:
+        assert (os.path.isfile(args.topology))
+
+        topo_data = json.load(open(args.topology))['resources']
+        args.count = count_requested_instances(topo_data)
+
     if not args.gc:
         allocated_class = get_set_default(classes, args.cls, [])
-        
+
         if args.allocate:
             assert args.cls
             assert args.jobid
-            job_take(args, ssids, allocated_class)
+            job_take(args, ssids, allocated_class, topo_data)
         elif args.teardown:
             job_release(args, allocated_class)
         else:
