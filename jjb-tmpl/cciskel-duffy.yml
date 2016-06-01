@@ -48,8 +48,8 @@
           set -xeuo pipefail
           playbook="{playbook}"
           # Keep compatibility with earlier cciskel-duffy
-          if test -f inventory.${{ORIGIN_BUILD_TAG}}; then
-            ln -s inventory.${{ORIGIN_BUILD_TAG}} inventory
+          if test -f inventory.${{BUILD_TAG}}; then
+            ln -s inventory.${{BUILD_TAG}} inventory
           fi
           if test -n "${{playbook:-}}"; then
             ansible-playbook -u root -i ${{WORKSPACE}}/inventory "${{playbook}}"
