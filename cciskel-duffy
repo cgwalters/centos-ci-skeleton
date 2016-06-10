@@ -22,7 +22,6 @@ import argparse
 
 url_base="http://admin.ci.centos.org:8080"
 api_key=open(os.path.expanduser('~/duffy.key')).read().strip()
-cached_state_path = os.path.expanduser('~/duffy-state-cache.json')
 ver="7"
 arch="x86_64"
 inventory_url="%s/Inventory?key=%s" % (url_base,api_key)
@@ -247,6 +246,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--allocate', help="Allocate machine(s)", action='store_true')
     parser.add_argument('--teardown', help="Teardown machine(s)", action='store_true')
+    parser.add_argument('--prefix', help="Identifier for group of jobs", dest='prefix')
     parser.add_argument('--class', help="Class/group of machine", dest='cls')
     parser.add_argument('--jobid', help="Identifier for requesting process")
     parser.add_argument('--gc', help="Only perform GC", action='store_true')
@@ -255,6 +255,12 @@ def main():
     parser.add_argument('--topology', help="Define ansible groups/vars from provided file")
     parser.add_argument('--timeout-secs', help="Deallocate idle machine after this many seconds", type=int, default=60*60)
     args = parser.parse_args()
+
+    if args.prefix is not None:
+        cachename = 'duffy-state-cache-{}.json'.format(args.prefix)
+    else:
+        cachename = 'duffy-state-cache.json'
+    cached_state_path = os.path.expanduser('~/' + cachename)
 
     if os.path.isfile(cached_state_path):
         with open(cached_state_path) as f:
