@@ -141,6 +141,7 @@ def write_inventory(args, allocated_class, topo_data=None):
         f.write('RSYNC_PASSWORD={}\n'.format(a_ssid[:13]))
         # For convenience, if we only allocated a single machine
         if args.count == 1:
+            print('Using default DUFFY_HOST={}'.format(first_machine_allocated))
             f.write('DUFFY_HOST={}\n'.format(first_machine_allocated))
 
 
