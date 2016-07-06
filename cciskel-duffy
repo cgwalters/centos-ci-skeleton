@@ -56,7 +56,6 @@ def count_requested_instances(topo_data):
 
 
 def write_inventory(args, allocated_class, topo_data=None):
-
     a_ssid = None
     first_machine_allocated = None
 
@@ -65,8 +64,6 @@ def write_inventory(args, allocated_class, topo_data=None):
             continue
         if a_ssid is None:
             a_ssid = machine['ssid']
-            first_machine_allocated = machine['name']
-        machine['job'] = args.jobid
 
     inventory = {}
 
@@ -112,9 +109,13 @@ def write_inventory(args, allocated_class, topo_data=None):
 
                 if isinstance(v, dict):
                     for q,w in v.iteritems():
+                        if first_machine_allocated is None:
+                            first_machine_allocated = w
                         f.write("{}='{}'\n".format(q,w))
                 else:
                     for items in v:
+                        if first_machine_allocated is None:
+                            first_machine_allocated = v
                         f.write('{}\n'.format(items))
 
                 f.write('\n')
@@ -124,8 +125,7 @@ def write_inventory(args, allocated_class, topo_data=None):
             for machine in allocated_class:
                 if machine['job'] != '':
                     pass
-                if a_ssid is None:
-                    a_ssid = machine['ssid']
+                if first_machine_allocated is None:
                     first_machine_allocated = machine['name']
                 machine['job'] = args.jobid
                 f.write(machine['name'] + '\n')
