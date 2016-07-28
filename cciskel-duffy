@@ -124,7 +124,7 @@ def write_inventory(args, allocated_class, topo_data=None):
             n_allocated = 0
             for machine in allocated_class:
                 if machine['job'] != '':
-                    pass
+                    continue
                 if first_machine_allocated is None:
                     first_machine_allocated = machine['name']
                 machine['job'] = args.jobid
