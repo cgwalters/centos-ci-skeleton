@@ -86,6 +86,9 @@
       - ansicolor
       - workspace-cleanup
       - timestamps
+    properties:
+        - build-discarder:
+            num-to-keep: 10
 
 # This singleton job ensures that it's the only thing accessing
 # the cached duffy state.
